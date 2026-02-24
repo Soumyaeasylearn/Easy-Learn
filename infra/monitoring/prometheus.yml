@@ -1,0 +1,56 @@
+# infra/monitoring/prometheus.yml
+# Prometheus scrape config for Spoken English Coach backend
+# Run: prometheus --config.file=prometheus.yml
+
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    app: spoken-english-coach
+
+scrape_configs:
+  # FastAPI /metrics endpoint (prometheus-fastapi-instrumentator)
+  - job_name: "spoken-english-backend"
+    metrics_path: /metrics
+    scheme: https
+    static_configs:
+      - targets:
+          - your-render-app.onrender.com   # ← update after deploy
+    tls_config:
+      insecure_skip_verify: false
+
+  # Self-monitoring
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+# Alerting rules file
+rule_files:
+  - "alert_rules.yml"
+
+# ── Alert rules (alert_rules.yml) ─────────────────────────────────────────
+# Create infra/monitoring/alert_rules.yml with:
+#
+# groups:
+#   - name: backend_alerts
+#     rules:
+#       - alert: HighErrorRate
+#         expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+#         for: 2m
+#         labels: { severity: critical }
+#         annotations:
+#           summary: "High 5xx error rate on {{ $labels.job }}"
+#
+#       - alert: SlowASR
+#         expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{handler="/asr/transcribe"}[5m])) > 5
+#         for: 3m
+#         labels: { severity: warning }
+#         annotations:
+#           summary: "ASR p95 latency > 5s"
+#
+#       - alert: ServiceDown
+#         expr: up == 0
+#         for: 1m
+#         labels: { severity: critical }
+#         annotations:
+#           summary: "{{ $labels.job }} is down"

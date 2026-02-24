@@ -1,0 +1,155 @@
+# .github/workflows/ci-cd.yml
+# CI/CD Pipeline for Spoken English Coach
+# Free tier: GitHub Actions (2000 min/month) → Render (backend) + Vercel (frontend)
+
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION:   "20"
+
+jobs:
+  # ── Backend Tests ──────────────────────────────────────────────────────────
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install system deps
+        run: sudo apt-get install -y libsndfile1 ffmpeg
+
+      - name: Install Python deps
+        run: |
+          pip install pytest pytest-asyncio httpx
+          pip install -r asr/requirements.txt
+          pip install -r tts/requirements.txt
+          pip install -r coach/requirements.txt
+          pip install supabase pydantic-settings faiss-cpu sentence-transformers
+
+      - name: Run backend tests
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'http://localhost:54321' }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY || 'test-key' }}
+          HF_TOKEN:     ${{ secrets.HF_TOKEN     || '' }}
+          WHISPER_MODEL: tiny
+        run: |
+          python -m pytest tests/ -v --tb=short \
+            --ignore=tests/test_asr.py   # skip heavy ASR model test in CI
+          python -m pytest tests/test_asr.py::test_health -v
+
+      - name: Lint with ruff
+        run: |
+          pip install ruff
+          ruff check . --ignore E501
+
+  # ── Frontend Tests ─────────────────────────────────────────────────────────
+  frontend-test:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/web/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build Next.js
+        run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: https://placeholder.onrender.com
+
+      - name: Run frontend tests
+        run: npm test -- --passWithNoTests
+
+  # ── Deploy Backend to Render ───────────────────────────────────────────────
+  deploy-backend:
+    name: Deploy Backend (Render)
+    needs: backend-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}" \
+            -H "Content-Type: application/json" \
+            --fail --silent
+        # Set RENDER_DEPLOY_HOOK in GitHub Secrets:
+        # Render Dashboard → Service → Settings → Deploy Hook → Copy URL
+
+  # ── Deploy Frontend to Vercel ──────────────────────────────────────────────
+  deploy-frontend:
+    name: Deploy Frontend (Vercel)
+    needs: frontend-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Vercel CLI
+        run: npm i -g vercel
+
+      - name: Deploy to Vercel
+        working-directory: frontend/web
+        run: |
+          vercel --token=${{ secrets.VERCEL_TOKEN }} \
+                 --scope=${{ secrets.VERCEL_SCOPE }} \
+                 --prod --yes
+        env:
+          VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+  # ── Smoke Tests after Deploy ───────────────────────────────────────────────
+  smoke-test:
+    name: Smoke Tests
+    needs: [deploy-backend, deploy-frontend]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Health check — Backend
+        run: |
+          curl --fail --retry 5 --retry-delay 10 \
+            "${{ secrets.RENDER_APP_URL }}/health"
+
+      - name: Health check — Frontend
+        run: |
+          curl --fail --retry 3 --retry-delay 5 \
+            "${{ secrets.VERCEL_APP_URL }}/"
+
+      - name: ASR health
+        run: curl --fail "${{ secrets.RENDER_APP_URL }}/asr/health"
+
+      - name: TTS health
+        run: curl --fail "${{ secrets.RENDER_APP_URL }}/tts/health"
+
+      - name: Coach health
+        run: curl --fail "${{ secrets.RENDER_APP_URL }}/coach/health"
