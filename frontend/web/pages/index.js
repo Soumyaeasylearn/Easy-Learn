@@ -2,7 +2,7 @@
 import Head from "next/head";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import styles from "../public/styles.css";
+
 
 const API = process.env.NEXT_PUBLIC_API_URL || "https://your-render-app.onrender.com";
 
