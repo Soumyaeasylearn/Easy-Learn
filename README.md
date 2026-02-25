@@ -260,6 +260,7 @@ spoken-english-app/
 2. Create feature branch: `git checkout -b feat/your-feature`
 3. Run tests: `pytest backend/tests/ -v`
 4. Submit a PR — CI runs automatically
+5. 
 
 ---
 
