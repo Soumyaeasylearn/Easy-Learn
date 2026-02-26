@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+python-multipart
+openai-whisper
+torch
+torchaudio
+soundfile
+numpy
+websockets
