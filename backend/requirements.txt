@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+prometheus-fastapi-instrumentator
+openai-whisper
+torch
+torchaudio
+kokoro
+supabase
+python-multipart
+websockets
+httpx
