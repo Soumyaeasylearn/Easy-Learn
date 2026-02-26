@@ -16,7 +16,7 @@ from typing import Optional
 import numpy as np
 import soundfile as sf
 import whisper
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 
 logger = logging.getLogger("asr")
@@ -120,7 +120,8 @@ async def health():
 
 
 @app.post("/asr/transcribe")
-async def transcribe_file(audio_data: bytes):
+async def transcribe_file(audio: UploadFile = File(...)):
+    audio_data = await audio.read()
     """Single-shot transcription for short clips (< 30 s)."""
     try:
         result = await transcribe_whisper(audio_data)
