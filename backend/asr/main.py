@@ -119,7 +119,7 @@ async def health():
     return {"status": "ok", "model": os.getenv("WHISPER_MODEL", "tiny")}
 
 
-@app.post("/asr/transcribe")
+@app.post("/transcribe")
 async def transcribe_file(audio: UploadFile = File(...)):
     audio_data = await audio.read()
     """Single-shot transcription for short clips (< 30 s)."""
@@ -135,7 +135,7 @@ async def transcribe_file(audio: UploadFile = File(...)):
             raise HTTPException(status_code=500, detail=str(e2))
 
 
-@app.websocket("/asr")
+@app.websocket("/ws")
 async def websocket_asr(ws: WebSocket):
     """
     WebSocket streaming ASR.
