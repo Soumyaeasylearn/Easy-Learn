@@ -9,3 +9,5 @@ pydantic-settings
 prometheus-fastapi-instrumentator
 numpy
 soundfile
+openai-whisper
+websockets
