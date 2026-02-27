@@ -1,7 +1,8 @@
 fastapi
 uvicorn
-openai
+httpx
 supabase
 python-dotenv
 pydantic
-httpx
+pydantic-settings
+prometheus-fastapi-instrumentator
