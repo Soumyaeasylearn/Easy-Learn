@@ -28,11 +28,12 @@ export default function LessonPage() {
     try {
       // 1. Transcribe
       const arrayBuffer = await audioBlob.arrayBuffer();
-      const asr = await fetch(`${API}/asr/transcribe`, {
-        method: "POST",
-        body: arrayBuffer,
-        headers: { "Content-Type": "audio/wav" },
-      });
+      const formData = new FormData();
+formData.append("audio", new Blob([arrayBuffer], { type: "audio/wav" }), "audio.wav");
+const asr = await fetch(`${API}/asr/transcribe`, {
+  method: "POST",
+  body: formData,
+});
       const asrData = await asr.json();
       const text = asrData.text || "";
       setTranscript(text);
@@ -43,7 +44,7 @@ export default function LessonPage() {
       }
 
       // 2. Get coaching feedback
-      const coachRes = await fetch(`${API}/coach`, {
+    const coachRes = await fetch(`${API}/coach/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: userId, transcript: text }),
@@ -106,7 +107,7 @@ export default function LessonPage() {
           <AudioRecorder
             onComplete={handleRecordingComplete}
             onPartial={handlePartial}
-            wsUrl={`${API.replace("https", "wss").replace("http", "ws")}/asr`}
+            wsUrl={`${API.replace("https", "wss").replace("http", "ws")}/asr/ws`}
           />
 
           <TranscriptDisplay
