@@ -24,12 +24,7 @@ logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="ASR Service", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
 
 # ── Model Loading ────────────────────────────────────────────────────────────
 # "tiny" model: ~39 MB, runs on CPU in ~1-2 s — perfect for free tier
@@ -123,6 +118,8 @@ async def health():
 @app.post("/transcribe")
 async def transcribe_file(audio: UploadFile = File(...)):
     audio_data = await audio.read()
+    if not audio_data:
+        raise HTTPException(status_code=400, detail="Empty audio")
     """Single-shot transcription for short clips (< 30 s)."""
     try:
         result = await transcribe_whisper(audio_data)
