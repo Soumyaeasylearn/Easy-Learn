@@ -5,6 +5,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="ASR Service")
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 HF_ASR_URL = "https://api-inference.huggingface.co/models/openai/whisper-tiny.en"
 
