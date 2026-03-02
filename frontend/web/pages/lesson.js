@@ -15,8 +15,8 @@ export default function LessonPage() {
   const [loading,    setLoading]    = useState(false);
   const [ttsUrl,     setTtsUrl]     = useState(null);
 
-  const userId = typeof window !== "undefined"
-    ? localStorage.getItem("user_id") || "demo-user" : "demo-user";
+const userId = typeof window !== "undefined"
+  ? localStorage.getItem("user_id") || "00000000-0000-0000-0000-000000000000" : "00000000-0000-0000-0000-000000000000";
 
   // Called when recording finishes with final audio blob
   const handleRecordingComplete = useCallback(async (audioBlob) => {
