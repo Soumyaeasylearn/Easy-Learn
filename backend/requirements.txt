@@ -1,3 +1,5 @@
+torch
+openai-whisper
 fastapi
 uvicorn
 python-multipart
@@ -9,5 +11,6 @@ pydantic-settings
 prometheus-fastapi-instrumentator
 numpy
 soundfile
-openai-whisper
 websockets
+faiss-cpu
+sentence-transformers
