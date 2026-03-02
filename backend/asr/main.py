@@ -15,7 +15,7 @@ from typing import Optional
 
 import numpy as np
 import soundfile as sf
-import whisper
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -40,7 +40,8 @@ _vosk_model = None
 def get_whisper():
     global _whisper_model
     if _whisper_model is None:
-        model_size = os.getenv("WHISPER_MODEL", "tiny")   # tiny / base / small
+        import whisper
+        model_size = os.getenv("WHISPER_MODEL", "tiny")
         logger.info(f"Loading Whisper [{model_size}]…")
         _whisper_model = whisper.load_model(model_size)
         logger.info("Whisper ready.")
