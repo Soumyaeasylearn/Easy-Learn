@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-kokoro
+pyttsx3
 soundfile
 numpy
-httpx
+pydub
