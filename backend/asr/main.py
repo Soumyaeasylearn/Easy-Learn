@@ -13,7 +13,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 HF_TOKEN = os.getenv("HF_TOKEN", "")
-HF_ASR_URL = "https://api-inference.huggingface.co/models/openai/whisper-tiny.en"
+HF_ASR_URL = "https://router.huggingface.co/hf-inference/models/openai/whisper-tiny.en"
 
 @app.get("/health")
 async def health():
