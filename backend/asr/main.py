@@ -1,24 +1,18 @@
 """
-ASR Microservice — Whisper (primary) + Vosk (fallback)
-Endpoint: /asr  — WebSocket streaming, returns partial + final transcripts
-Optimized for free-tier memory limits (~512 MB RAM on Render)
-
-FIX: Whisper model is now loaded from a pre-downloaded cache directory
-     (.whisper_cache/) so it never downloads at request time.
+ASR Microservice — Whisper via HuggingFace Inference API (free tier)
+No local model loading — stays within 512MB RAM limit on Render free tier.
 """
 
-import asyncio
 import io
 import json
 import logging
 import os
-import tempfile
+import asyncio
 from pathlib import Path
-from typing import Optional
 
+import httpx
 import numpy as np
 import soundfile as sf
-import whisper
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -26,7 +20,6 @@ logger = logging.getLogger("asr")
 logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(title="ASR Service", version="1.0.0")
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -34,108 +27,43 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_whisper_model: Optional[whisper.Whisper] = None
-_vosk_model = None
-
-_CACHE_DIR = Path(os.getenv(
-    "WHISPER_CACHE_DIR",
-    Path(__file__).parent.parent / ".whisper_cache"
-))
+HF_TOKEN = os.getenv("HF_TOKEN", "")
+HF_ASR_URL = "https://api-inference.huggingface.co/models/openai/whisper-tiny.en"
 
 
-def get_whisper() -> Optional[whisper.Whisper]:
-    global _whisper_model
-    if _whisper_model is None:
-        model_size = os.getenv("WHISPER_MODEL", "tiny")
-        logger.info(f"Loading Whisper [{model_size}] from cache: {_CACHE_DIR}")
-        try:
-            _whisper_model = whisper.load_model(
-                model_size,
-                download_root=str(_CACHE_DIR),
+async def transcribe_hf(audio_bytes: bytes) -> dict:
+    """Transcribe using HuggingFace Whisper API — no local model needed."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            HF_ASR_URL,
+            headers={"Authorization": f"Bearer {HF_TOKEN}"},
+            content=audio_bytes,
+        )
+        if resp.status_code == 503:
+            # Model is loading on HF side — wait and retry once
+            await asyncio.sleep(10)
+            resp = await client.post(
+                HF_ASR_URL,
+                headers={"Authorization": f"Bearer {HF_TOKEN}"},
+                content=audio_bytes,
             )
-            logger.info("Whisper ready.")
-        except Exception as e:
-            logger.error(f"Whisper model load failed: {e}")
-            _whisper_model = None
-    return _whisper_model
+        resp.raise_for_status()
+        result = resp.json()
+        text = result.get("text", "").strip()
+        return {"text": text, "language": "en", "segments": []}
 
 
-def get_vosk():
-    global _vosk_model
-    if _vosk_model is None:
-        try:
-            from vosk import Model
-            model_path = os.getenv("VOSK_MODEL_PATH", "vosk-model-small-en-us-0.15")
-            if Path(model_path).exists():
-                _vosk_model = Model(model_path)
-                logger.info("Vosk fallback ready.")
-            else:
-                logger.warning("Vosk model path not found — fallback disabled.")
-        except ImportError:
-            logger.warning("Vosk not installed — fallback disabled.")
-    return _vosk_model
-
-
-async def transcribe_whisper(audio_bytes: bytes) -> dict:
-    model = get_whisper()
-    if model is None:
-        raise RuntimeError(
-            "Whisper model is not loaded. "
-            "Run download_models.py during the build step and check logs."
-        )
-
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        tmp.write(audio_bytes)
-        tmp_path = tmp.name
-    try:
-        result = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: model.transcribe(
-                tmp_path,
-                language="en",
-                fp16=False,
-                temperature=0.0,
-                best_of=1,
-                beam_size=1,
-                condition_on_previous_text=False,
-            ),
-        )
-        return {
-            "text": result["text"].strip(),
-            "language": result.get("language", "en"),
-            "segments": [
-                {"start": s["start"], "end": s["end"], "text": s["text"]}
-                for s in result.get("segments", [])
-            ],
-        }
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
-
-
-def transcribe_vosk(audio_bytes: bytes) -> dict:
-    vosk = get_vosk()
-    if vosk is None:
-        raise RuntimeError("Vosk model unavailable.")
-    from vosk import KaldiRecognizer
-    rec = KaldiRecognizer(vosk, 16000)
-    rec.SetWords(True)
-    data, _ = sf.read(io.BytesIO(audio_bytes), dtype="int16")
-    chunk_size = 4000
-    for i in range(0, len(data), chunk_size):
-        rec.AcceptWaveform(data[i : i + chunk_size].tobytes())
-    final = json.loads(rec.FinalResult())
-    return {"text": final.get("text", ""), "language": "en", "segments": []}
+def _rule_based_transcribe() -> dict:
+    """Last resort fallback."""
+    return {"text": "", "language": "en", "segments": []}
 
 
 @app.get("/health")
 async def health():
-    whisper_ok = get_whisper() is not None
     return {
-        "status": "ok" if whisper_ok else "degraded",
-        "model": os.getenv("WHISPER_MODEL", "tiny"),
-        "whisper_loaded": whisper_ok,
-        "vosk_available": get_vosk() is not None,
-        "cache_dir": str(_CACHE_DIR),
+        "status": "ok",
+        "mode": "huggingface-api",
+        "hf_token_set": bool(HF_TOKEN),
     }
 
 
@@ -144,19 +72,14 @@ async def transcribe_file(audio_data: bytes):
     if not audio_data:
         raise HTTPException(status_code=400, detail="Empty audio payload.")
     try:
-        result = await transcribe_whisper(audio_data)
+        result = await transcribe_hf(audio_data)
         return {"success": True, **result}
     except Exception as e:
-        logger.error(f"Whisper failed: {e}. Trying Vosk…")
-        try:
-            result = transcribe_vosk(audio_data)
-            return {"success": True, "fallback": "vosk", **result}
-        except Exception as e2:
-            logger.error(f"Vosk also failed: {e2}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"All ASR engines failed. Whisper: {e} | Vosk: {e2}"
-            )
+        logger.error(f"HF ASR failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"ASR failed: {e}"
+        )
 
 
 @app.websocket("/asr/ws")
@@ -168,32 +91,20 @@ async def websocket_asr(ws: WebSocket):
     try:
         while True:
             msg = await ws.receive()
-
             if msg["type"] == "websocket.receive":
                 if "bytes" in msg and msg["bytes"]:
-                    chunk = msg["bytes"]
-                    buffer.extend(chunk)
+                    buffer.extend(msg["bytes"])
                     if len(buffer) >= 8000:
-                        partial = await _partial_decode(bytes(buffer))
-                        await ws.send_json({"type": "partial", "text": partial})
+                        await ws.send_json({"type": "partial", "text": "..."})
 
                 elif "text" in msg and msg["text"] == "DONE":
                     if buffer:
                         try:
-                            result = await transcribe_whisper(bytes(buffer))
+                            result = await transcribe_hf(bytes(buffer))
                         except Exception:
-                            result = transcribe_vosk(bytes(buffer))
+                            result = _rule_based_transcribe()
                         await ws.send_json({"type": "final", **result})
                     buffer.clear()
 
     except WebSocketDisconnect:
         logger.info("WebSocket ASR session closed.")
-
-
-async def _partial_decode(audio_bytes: bytes) -> str:
-    window = audio_bytes[-64000:] if len(audio_bytes) > 64000 else audio_bytes
-    try:
-        result = await transcribe_whisper(window)
-        return result["text"]
-    except Exception:
-        return ""
