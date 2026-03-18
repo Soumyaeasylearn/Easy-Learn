@@ -67,7 +67,7 @@ async def health():
     }
 
 
-@app.post("/asr/transcribe")
+@app.post("/transcribe")
 async def transcribe_file(audio_data: bytes):
     if not audio_data:
         raise HTTPException(status_code=400, detail="Empty audio payload.")
@@ -82,7 +82,7 @@ async def transcribe_file(audio_data: bytes):
         )
 
 
-@app.websocket("/asr/ws")
+@app.websocket("/ws")
 async def websocket_asr(ws: WebSocket):
     await ws.accept()
     logger.info("WebSocket ASR session opened.")
