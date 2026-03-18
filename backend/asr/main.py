@@ -1,7 +1,7 @@
 import os
 import httpx
 import logging
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 logger = logging.getLogger("asr")
@@ -48,7 +48,7 @@ async def transcribe_file(audio: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.websocket("/ws")
-async def websocket_asr(ws):
+async def websocket_asr(ws: WebSocket):
     await ws.accept()
     await ws.send_json({"type": "partial", "text": ""})
     await ws.close()
