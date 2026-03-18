@@ -3,17 +3,12 @@ ASR Microservice — Whisper via HuggingFace Inference API (free tier)
 No local model loading — stays within 512MB RAM limit on Render free tier.
 """
 
-import io
-import json
 import logging
 import os
 import asyncio
-from pathlib import Path
 
 import httpx
-import numpy as np
-import soundfile as sf
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 logger = logging.getLogger("asr")
@@ -40,7 +35,6 @@ async def transcribe_hf(audio_bytes: bytes) -> dict:
             content=audio_bytes,
         )
         if resp.status_code == 503:
-            # Model is loading on HF side — wait and retry once
             await asyncio.sleep(10)
             resp = await client.post(
                 HF_ASR_URL,
@@ -54,7 +48,6 @@ async def transcribe_hf(audio_bytes: bytes) -> dict:
 
 
 def _rule_based_transcribe() -> dict:
-    """Last resort fallback."""
     return {"text": "", "language": "en", "segments": []}
 
 
@@ -68,7 +61,8 @@ async def health():
 
 
 @app.post("/asr/transcribe")
-async def transcribe_file(audio_data: bytes):
+async def transcribe_file(request: Request):
+    audio_data = await request.body()
     if not audio_data:
         raise HTTPException(status_code=400, detail="Empty audio payload.")
     try:
@@ -91,12 +85,13 @@ async def websocket_asr(ws: WebSocket):
     try:
         while True:
             msg = await ws.receive()
+            if msg["type"] == "websocket.disconnect":
+                break
             if msg["type"] == "websocket.receive":
                 if "bytes" in msg and msg["bytes"]:
                     buffer.extend(msg["bytes"])
                     if len(buffer) >= 8000:
                         await ws.send_json({"type": "partial", "text": "..."})
-
                 elif "text" in msg and msg["text"] == "DONE":
                     if buffer:
                         try:
@@ -105,6 +100,5 @@ async def websocket_asr(ws: WebSocket):
                             result = _rule_based_transcribe()
                         await ws.send_json({"type": "final", **result})
                     buffer.clear()
-
     except WebSocketDisconnect:
         logger.info("WebSocket ASR session closed.")
