@@ -24,7 +24,7 @@ export default function LessonPage() {
     setFeedback(null);
     setTtsUrl(null);
     try {
-      const coachRes = await fetch(`${API}/coach/`, {
+    const coachRes = await fetch(`${API}/coach`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: userId, transcript: text }),
