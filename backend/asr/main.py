@@ -23,7 +23,7 @@ app.add_middleware(
 )
 
 HF_TOKEN = os.getenv("HF_TOKEN", "")
-HF_ASR_URL = "https://api-inference.huggingface.co/models/openai/whisper-tiny.en"
+HF_ASR_URL = "https://api-inference.huggingface.co/models/openai/whisper-tiny"
 
 
 async def transcribe_hf(audio_bytes: bytes) -> dict:
