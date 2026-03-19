@@ -47,6 +47,7 @@ Instrumentator().instrument(gateway).expose(gateway, endpoint="/metrics")
 gateway.mount("/asr",   asr_app)
 gateway.mount("/tts",   tts_app)
 gateway.mount("/coach", coach_app)
+gateway.mount("/coach/", coach_app)
 
 
 # ── Personalization endpoints ─────────────────────────────────────────────────
