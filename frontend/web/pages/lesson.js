@@ -1,9 +1,7 @@
-// pages/lesson.js — Core practice screen: record → transcript → feedback
+// pages/lesson.js — Uses Chrome built-in speech recognition (no backend ASR needed)
 import { useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import Head from "next/head";
-import AudioRecorder from "../components/AudioRecorder";
-import TranscriptDisplay from "../components/TranscriptDisplay";
 import FeedbackPanel from "../components/FeedbackPanel";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "https://your-render-app.onrender.com";
@@ -14,37 +12,19 @@ export default function LessonPage() {
   const [feedback,   setFeedback]   = useState(null);
   const [loading,    setLoading]    = useState(false);
   const [ttsUrl,     setTtsUrl]     = useState(null);
+  const [state,      setState]      = useState("idle");
+  const recognitionRef = useRef(null);
 
-const userId = typeof window !== "undefined"
-  ? localStorage.getItem("user_id") || "00000000-0000-0000-0000-000000000000" : "00000000-0000-0000-0000-000000000000";
+  const userId = typeof window !== "undefined"
+    ? localStorage.getItem("user_id") || "00000000-0000-0000-0000-000000000000"
+    : "00000000-0000-0000-0000-000000000000";
 
-  // Called when recording finishes with final audio blob
-  const handleRecordingComplete = useCallback(async (audioBlob) => {
+  async function getCoachFeedback(text) {
     setLoading(true);
     setFeedback(null);
     setTtsUrl(null);
-    setTranscript("");
-
     try {
-      // 1. Transcribe
-      const arrayBuffer = await audioBlob.arrayBuffer();
-      const formData = new FormData();
-formData.append("audio", new Blob([arrayBuffer], { type: "audio/wav" }), "audio.wav");
-const asr = await fetch(`${API}/asr/transcribe`, {
-  method: "POST",
-  body: formData,
-});
-      const asrData = await asr.json();
-      const text = asrData.text || "";
-      setTranscript(text);
-
-      if (!text.trim()) {
-        setFeedback({ encouragement: "We couldn't hear you clearly — try again!", score: null });
-        return;
-      }
-
-      // 2. Get coaching feedback
-    const coachRes = await fetch(`${API}/coach/`, {
+      const coachRes = await fetch(`${API}/coach/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_id: userId, transcript: text }),
@@ -52,7 +32,6 @@ const asr = await fetch(`${API}/asr/transcribe`, {
       const coachData = await coachRes.json();
       setFeedback(coachData);
 
-      // 3. Store mistake in personalization index (fire-and-forget)
       if (coachData.tags?.length) {
         fetch(`${API}/recommend/mistake`, {
           method: "POST",
@@ -66,7 +45,6 @@ const asr = await fetch(`${API}/asr/transcribe`, {
         }).catch(() => {});
       }
 
-      // 4. TTS — read out the correction
       if (coachData.correction) {
         const ttsRes = await fetch(`${API}/tts`, {
           method: "POST",
@@ -82,10 +60,72 @@ const asr = await fetch(`${API}/asr/transcribe`, {
     } finally {
       setLoading(false);
     }
-  }, [userId]);
+  }
 
-  // WebSocket partial transcript handler
-  const handlePartial = useCallback((text) => setPartial(text), []);
+  function startListening() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Please use Google Chrome for speech recognition.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognitionRef.current = recognition;
+
+    recognition.onstart = () => {
+      setState("recording");
+      setPartial("");
+      setTranscript("");
+      setFeedback(null);
+    };
+
+    recognition.onresult = (event) => {
+      let interimTranscript = "";
+      let finalTranscript = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) finalTranscript += t;
+        else interimTranscript += t;
+      }
+      if (interimTranscript) setPartial(interimTranscript);
+      if (finalTranscript) {
+        setTranscript(finalTranscript);
+        setPartial("");
+        setState("processing");
+        getCoachFeedback(finalTranscript);
+      }
+    };
+
+    recognition.onerror = (e) => {
+      console.error("Speech error:", e.error);
+      setState("idle");
+      if (e.error === "not-allowed") {
+        alert("Microphone access denied. Please allow microphone in Chrome settings.");
+      }
+    };
+
+    recognition.onend = () => {
+      if (state === "recording") setState("idle");
+    };
+
+    recognition.start();
+  }
+
+  function stopListening() {
+    recognitionRef.current?.stop();
+    setState("idle");
+  }
+
+  function toggle() {
+    if (state === "idle") startListening();
+    else if (state === "recording") stopListening();
+  }
+
+  const btnColor = { idle: "#7fff6e", recording: "#ff6e6e", processing: "#6b6b82" };
+  const btnLabel = { idle: "🎙 Tap to Speak", recording: "⏹ Stop", processing: "⏳ Processing…" };
 
   return (
     <>
@@ -104,24 +144,46 @@ const asr = await fetch(`${API}/asr/transcribe`, {
           <h1 className="title">Say anything in English</h1>
           <p className="subtitle">Hit record and speak naturally — we'll coach you instantly.</p>
 
-          <AudioRecorder
-            onComplete={handleRecordingComplete}
-            onPartial={handlePartial}
-            wsUrl={`${API.replace("https", "wss").replace("http", "ws")}/asr/ws`}
-          />
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
+            <button
+              onClick={toggle}
+              disabled={state === "processing"}
+              style={{
+                width: 180, height: 60, borderRadius: 999,
+                backgroundColor: btnColor[state],
+                border: "none", cursor: state === "processing" ? "wait" : "pointer",
+                fontWeight: 700, fontSize: 16, color: "#000",
+              }}
+            >
+              {btnLabel[state]}
+            </button>
+            <p style={{ color: "var(--muted)", fontSize: ".85rem", fontFamily: "var(--mono)" }}>
+              {state === "recording" ? "Listening… speak now" : "Powered by Chrome Speech API"}
+            </p>
+          </div>
 
-          <TranscriptDisplay
-            transcript={transcript}
-            partial={partial}
-            loading={loading}
-          />
-
-          {feedback && (
-            <FeedbackPanel
-              feedback={feedback}
-              ttsUrl={ttsUrl}
-            />
+          {(transcript || partial) && (
+            <div style={{ background: "var(--surface)", border: "1px solid var(--border)",
+              borderRadius: "1rem", padding: "1.5rem" }}>
+              <p style={{ fontFamily: "var(--mono)", fontSize: ".85rem", color: "var(--muted)",
+                marginBottom: ".5rem", textTransform: "uppercase", letterSpacing: ".06em" }}>
+                Transcript
+              </p>
+              <p style={{ fontSize: "1.1rem", lineHeight: 1.7,
+                color: partial && !transcript ? "var(--muted)" : "var(--text)",
+                fontStyle: partial && !transcript ? "italic" : "normal" }}>
+                {transcript || partial}
+              </p>
+            </div>
           )}
+
+          {loading && (
+            <p style={{ color: "var(--muted)", textAlign: "center", fontFamily: "var(--mono)" }}>
+              Getting feedback…
+            </p>
+          )}
+
+          {feedback && <FeedbackPanel feedback={feedback} ttsUrl={ttsUrl} />}
         </main>
       </div>
 
@@ -136,8 +198,7 @@ const asr = await fetch(`${API}/asr/transcribe`, {
         .shell { max-width: 700px; margin: 0 auto; padding: 0 1.5rem; min-height: 100vh; }
         .top-bar { display: flex; align-items: center; justify-content: space-between;
           padding: 1.5rem 0; border-bottom: 1px solid var(--border); }
-        .back-link { color: var(--muted); text-decoration: none; font-size: .9rem;
-          transition: color .2s; }
+        .back-link { color: var(--muted); text-decoration: none; font-size: .9rem; transition: color .2s; }
         .back-link:hover { color: var(--accent); }
         .lesson-badge { background: var(--surface); border: 1px solid var(--border);
           border-radius: 999px; padding: .25rem .9rem; font-size: .8rem;
