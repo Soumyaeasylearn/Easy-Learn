@@ -12,5 +12,3 @@ prometheus-fastapi-instrumentator
 numpy
 soundfile
 websockets
-faiss-cpu==1.7.4
-sentence-transformers
