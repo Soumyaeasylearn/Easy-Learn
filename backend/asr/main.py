@@ -60,7 +60,7 @@ async def health():
     }
 
 
-@app.post("/asr/transcribe")
+@app.post("/transcribe")
 async def transcribe_file(request: Request):
     audio_data = await request.body()
     if not audio_data:
@@ -76,7 +76,7 @@ async def transcribe_file(request: Request):
         )
 
 
-@app.websocket("/asr/ws")
+@app.websocket("/ws")
 async def websocket_asr(ws: WebSocket):
     await ws.accept()
     logger.info("WebSocket ASR session opened.")
