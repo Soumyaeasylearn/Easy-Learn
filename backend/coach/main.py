@@ -169,7 +169,7 @@ async def health():
     return {"status": "ok", "hf_token_set": bool(HF_TOKEN)}
 
 
-@app.post("/coach", response_model=CoachResponse)
+@app.post("/", response_model=CoachResponse)
 async def coach(req: CoachRequest):
     if not req.transcript.strip():
         raise HTTPException(status_code=400, detail="Transcript is empty.")
@@ -183,7 +183,7 @@ async def coach(req: CoachRequest):
     return CoachResponse(**feedback)
 
 
-@app.get("/coach/history/{user_id}")
+@app.get("/history/{user_id}")
 async def get_history(user_id: str, limit: int = 20):
     try:
         supabase = get_supabase()
